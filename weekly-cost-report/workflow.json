@@ -1,0 +1,542 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "Recurrence_-_Weekly_Cost_Report": {
+                "type": "Recurrence",
+                "recurrence": {
+                    "frequency": "Week",
+                    "interval": 1,
+                    "schedule": {
+                        "weekDays": ["Tuesday"],
+                        "hours": [20],
+                        "minutes": [0]
+                    },
+                    "timeZone": "Eastern Standard Time"
+                }
+            }
+        },
+        "actions": {
+            "Get_secret_-_tenantId": {
+                "type": "ServiceProvider",
+                "inputs": {
+                    "parameters": {
+                        "secretName": "sp-tenant-id"
+                    },
+                    "serviceProviderConfiguration": {
+                        "connectionName": "keyVault-1",
+                        "operationId": "getSecret",
+                        "serviceProviderId": "/serviceProviders/keyVault"
+                    }
+                },
+                "runAfter": {},
+                "runtimeConfiguration": {
+                    "secureData": {
+                        "properties": ["inputs", "outputs"]
+                    }
+                }
+            },
+            "Get_secret_-_appId": {
+                "type": "ServiceProvider",
+                "inputs": {
+                    "parameters": {
+                        "secretName": "sp-app-id"
+                    },
+                    "serviceProviderConfiguration": {
+                        "connectionName": "keyVault-1",
+                        "operationId": "getSecret",
+                        "serviceProviderId": "/serviceProviders/keyVault"
+                    }
+                },
+                "runAfter": {
+                    "Get_secret_-_tenantId": ["Succeeded"]
+                },
+                "runtimeConfiguration": {
+                    "secureData": {
+                        "properties": ["inputs", "outputs"]
+                    }
+                }
+            },
+            "Get_secret_-_secret": {
+                "type": "ServiceProvider",
+                "inputs": {
+                    "parameters": {
+                        "secretName": "sp-client-secret"
+                    },
+                    "serviceProviderConfiguration": {
+                        "connectionName": "keyVault-1",
+                        "operationId": "getSecret",
+                        "serviceProviderId": "/serviceProviders/keyVault"
+                    }
+                },
+                "runAfter": {
+                    "Get_secret_-_appId": ["Succeeded"]
+                },
+                "runtimeConfiguration": {
+                    "secureData": {
+                        "properties": ["inputs", "outputs"]
+                    }
+                }
+            },
+            "Initialize_-_StartDate": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [{
+                        "name": "StartDate",
+                        "type": "string",
+                        "value": "@{formatDateTime(addDays(utcNow(), -7), 'yyyy-MM-dd')}"
+                    }]
+                },
+                "runAfter": {
+                    "Get_secret_-_secret": ["Succeeded"]
+                }
+            },
+            "Initialize_-_EndDate": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [{
+                        "name": "EndDate",
+                        "type": "string",
+                        "value": "@{formatDateTime(utcNow(), 'yyyy-MM-dd')}"
+                    }]
+                },
+                "runAfter": {
+                    "Initialize_-_StartDate": ["Succeeded"]
+                }
+            },
+            "Initialize_-_CurrentEmail": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [{ "name": "CurrentEmail", "type": "string", "value": "" }]
+                },
+                "runAfter": { "Initialize_-_EndDate": ["Succeeded"] }
+            },
+            "Initialize_-_CurrentSubName": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [{ "name": "CurrentSubName", "type": "string", "value": "" }]
+                },
+                "runAfter": { "Initialize_-_CurrentEmail": ["Succeeded"] }
+            },
+            "Initialize_-_DailyCostHTML": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [{ "name": "DailyCostHTML", "type": "string", "value": "" }]
+                },
+                "runAfter": { "Initialize_-_CurrentSubName": ["Succeeded"] }
+            },
+            "Initialize_-_TotalCost": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [{ "name": "TotalCost", "type": "float", "value": 0 }]
+                },
+                "runAfter": { "Initialize_-_DailyCostHTML": ["Succeeded"] }
+            },
+            "Initialize_-_Top5ResourceHTML": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [{ "name": "Top5ResourceHTML", "type": "string", "value": "" }]
+                },
+                "runAfter": { "Initialize_-_TotalCost": ["Succeeded"] }
+            },
+            "Initialize_-_MeterCategoryHTML": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [{ "name": "MeterCategoryHTML", "type": "string", "value": "" }]
+                },
+                "runAfter": { "Initialize_-_Top5ResourceHTML": ["Succeeded"] }
+            },
+            "Scope_-_Get_Subscriptions": {
+                "type": "Scope",
+                "actions": {
+                    "HTTP_-_List_All_Subscriptions": {
+                        "type": "Http",
+                        "inputs": {
+                            "method": "GET",
+                            "uri": "https://management.azure.com/subscriptions?api-version=2022-12-01",
+                            "authentication": {
+                                "type": "ActiveDirectoryOAuth",
+                                "tenant": "@body('Get_secret_-_tenantId')?['value']",
+                                "audience": "https://management.azure.com",
+                                "clientId": "@body('Get_secret_-_appId')?['value']",
+                                "secret": "@body('Get_secret_-_secret')?['value']"
+                            }
+                        },
+                        "runAfter": {},
+                        "runtimeConfiguration": {
+                            "secureData": { "properties": ["inputs"] }
+                        }
+                    },
+                    "Filter_-_Target_Subscriptions": {
+                        "type": "Query",
+                        "inputs": {
+                            "from": "@body('HTTP_-_List_All_Subscriptions')?['value']",
+                            "where": "@and(startsWith(item()?['displayName'], 'sandbox-'), equals(item()?['state'], 'Enabled'))"
+                        },
+                        "runAfter": {
+                            "HTTP_-_List_All_Subscriptions": ["Succeeded"]
+                        },
+                        "description": "CUSTOMIZE: Change 'sandbox-' to match your subscription naming convention"
+                    }
+                },
+                "runAfter": { "Initialize_-_MeterCategoryHTML": ["Succeeded"] }
+            },
+            "For_each_-_Subscription": {
+                "type": "Foreach",
+                "foreach": "@body('Filter_-_Target_Subscriptions')",
+                "actions": {
+                    "Scope_-_Reset_Variables": {
+                        "type": "Scope",
+                        "actions": {
+                            "Reset_-_DailyCostHTML": {
+                                "type": "SetVariable",
+                                "inputs": { "name": "DailyCostHTML", "value": "" },
+                                "runAfter": {}
+                            },
+                            "Reset_-_TotalCost": {
+                                "type": "SetVariable",
+                                "inputs": { "name": "TotalCost", "value": 0 },
+                                "runAfter": { "Reset_-_DailyCostHTML": ["Succeeded"] }
+                            },
+                            "Reset_-_Top5ResourceHTML": {
+                                "type": "SetVariable",
+                                "inputs": { "name": "Top5ResourceHTML", "value": "" },
+                                "runAfter": { "Reset_-_TotalCost": ["Succeeded"] }
+                            },
+                            "Reset_-_MeterCategoryHTML": {
+                                "type": "SetVariable",
+                                "inputs": { "name": "MeterCategoryHTML", "value": "" },
+                                "runAfter": { "Reset_-_Top5ResourceHTML": ["Succeeded"] }
+                            }
+                        },
+                        "runAfter": {}
+                    },
+                    "Scope_-_Get_Subscription_Info": {
+                        "type": "Scope",
+                        "actions": {
+                            "Set_-_CurrentSubName": {
+                                "type": "SetVariable",
+                                "inputs": { "name": "CurrentSubName", "value": "@{items('For_each_-_Subscription')?['displayName']}" },
+                                "runAfter": {}
+                            },
+                            "HTTP_-_Get_Subscription_Tags": {
+                                "type": "Http",
+                                "inputs": {
+                                    "method": "GET",
+                                    "uri": "https://management.azure.com/subscriptions/@{items('For_each_-_Subscription')?['subscriptionId']}/providers/Microsoft.Resources/tags/default?api-version=2021-04-01",
+                                    "authentication": {
+                                        "type": "ActiveDirectoryOAuth",
+                                        "tenant": "@body('Get_secret_-_tenantId')?['value']",
+                                        "audience": "https://management.azure.com",
+                                        "clientId": "@body('Get_secret_-_appId')?['value']",
+                                        "secret": "@body('Get_secret_-_secret')?['value']"
+                                    }
+                                },
+                                "runAfter": { "Set_-_CurrentSubName": ["Succeeded"] },
+                                "runtimeConfiguration": {
+                                    "secureData": { "properties": ["inputs"] }
+                                }
+                            },
+                            "Set_-_RecipientEmail": {
+                                "type": "SetVariable",
+                                "inputs": {
+                                    "name": "CurrentEmail",
+                                    "value": "@{coalesce(body('HTTP_-_Get_Subscription_Tags')?['properties']?['tags']?['owner-email'], '')}"
+                                },
+                                "runAfter": { "HTTP_-_Get_Subscription_Tags": ["Succeeded"] },
+                                "description": "CUSTOMIZE: Change 'owner-email' to match your tag name"
+                            }
+                        },
+                        "runAfter": { "Scope_-_Reset_Variables": ["Succeeded"] }
+                    },
+                    "Condition_-_Has_Email_Tag": {
+                        "type": "If",
+                        "expression": {
+                            "and": [{
+                                "not": {
+                                    "equals": ["@variables('CurrentEmail')", ""]
+                                }
+                            }]
+                        },
+                        "actions": {
+                            "Scope_-_Fetch_Cost_Data": {
+                                "type": "Scope",
+                                "actions": {
+                                    "HTTP_-_Daily_Cost": {
+                                        "type": "Http",
+                                        "inputs": {
+                                            "method": "POST",
+                                            "uri": "https://management.azure.com/subscriptions/@{items('For_each_-_Subscription')?['subscriptionId']}/providers/Microsoft.CostManagement/query?api-version=2023-11-01",
+                                            "body": {
+                                                "type": "ActualCost",
+                                                "timeframe": "Custom",
+                                                "timePeriod": {
+                                                    "from": "@{variables('StartDate')}",
+                                                    "to": "@{variables('EndDate')}"
+                                                },
+                                                "dataset": {
+                                                    "granularity": "Daily",
+                                                    "aggregation": {
+                                                        "totalCost": { "name": "Cost", "function": "Sum" }
+                                                    }
+                                                }
+                                            },
+                                            "authentication": {
+                                                "type": "ActiveDirectoryOAuth",
+                                                "tenant": "@body('Get_secret_-_tenantId')?['value']",
+                                                "audience": "https://management.azure.com",
+                                                "clientId": "@body('Get_secret_-_appId')?['value']",
+                                                "secret": "@body('Get_secret_-_secret')?['value']"
+                                            }
+                                        },
+                                        "runAfter": {},
+                                        "runtimeConfiguration": {
+                                            "secureData": { "properties": ["inputs"] }
+                                        }
+                                    },
+                                    "HTTP_-_Daily_Cost_By_MeterCategory": {
+                                        "type": "Http",
+                                        "inputs": {
+                                            "method": "POST",
+                                            "uri": "https://management.azure.com/subscriptions/@{items('For_each_-_Subscription')?['subscriptionId']}/providers/Microsoft.CostManagement/query?api-version=2023-11-01",
+                                            "body": {
+                                                "type": "ActualCost",
+                                                "timeframe": "Custom",
+                                                "timePeriod": {
+                                                    "from": "@{variables('StartDate')}",
+                                                    "to": "@{variables('EndDate')}"
+                                                },
+                                                "dataset": {
+                                                    "granularity": "Daily",
+                                                    "aggregation": {
+                                                        "totalCost": { "name": "Cost", "function": "Sum" }
+                                                    },
+                                                    "grouping": [
+                                                        { "type": "Dimension", "name": "MeterCategory" }
+                                                    ]
+                                                }
+                                            },
+                                            "authentication": {
+                                                "type": "ActiveDirectoryOAuth",
+                                                "tenant": "@body('Get_secret_-_tenantId')?['value']",
+                                                "audience": "https://management.azure.com",
+                                                "clientId": "@body('Get_secret_-_appId')?['value']",
+                                                "secret": "@body('Get_secret_-_secret')?['value']"
+                                            }
+                                        },
+                                        "runAfter": {},
+                                        "runtimeConfiguration": {
+                                            "secureData": { "properties": ["inputs"] }
+                                        }
+                                    },
+                                    "HTTP_-_Top_5_Resources": {
+                                        "type": "Http",
+                                        "inputs": {
+                                            "method": "POST",
+                                            "uri": "https://management.azure.com/subscriptions/@{items('For_each_-_Subscription')?['subscriptionId']}/providers/Microsoft.CostManagement/query?api-version=2023-11-01",
+                                            "body": {
+                                                "type": "ActualCost",
+                                                "timeframe": "Custom",
+                                                "timePeriod": {
+                                                    "from": "@{variables('StartDate')}",
+                                                    "to": "@{variables('EndDate')}"
+                                                },
+                                                "dataset": {
+                                                    "granularity": "None",
+                                                    "aggregation": {
+                                                        "totalCost": { "name": "Cost", "function": "Sum" }
+                                                    },
+                                                    "grouping": [
+                                                        { "type": "Dimension", "name": "ResourceId" }
+                                                    ],
+                                                    "sorting": [
+                                                        { "direction": "descending", "name": "Cost" }
+                                                    ],
+                                                    "top": 5
+                                                }
+                                            },
+                                            "authentication": {
+                                                "type": "ActiveDirectoryOAuth",
+                                                "tenant": "@body('Get_secret_-_tenantId')?['value']",
+                                                "audience": "https://management.azure.com",
+                                                "clientId": "@body('Get_secret_-_appId')?['value']",
+                                                "secret": "@body('Get_secret_-_secret')?['value']"
+                                            }
+                                        },
+                                        "runAfter": {},
+                                        "runtimeConfiguration": {
+                                            "secureData": { "properties": ["inputs"] }
+                                        }
+                                    },
+                                    "HTTP_-_Total_By_MeterCategory": {
+                                        "type": "Http",
+                                        "inputs": {
+                                            "method": "POST",
+                                            "uri": "https://management.azure.com/subscriptions/@{items('For_each_-_Subscription')?['subscriptionId']}/providers/Microsoft.CostManagement/query?api-version=2023-11-01",
+                                            "body": {
+                                                "type": "ActualCost",
+                                                "timeframe": "Custom",
+                                                "timePeriod": {
+                                                    "from": "@{variables('StartDate')}",
+                                                    "to": "@{variables('EndDate')}"
+                                                },
+                                                "dataset": {
+                                                    "granularity": "None",
+                                                    "aggregation": {
+                                                        "totalCost": { "name": "Cost", "function": "Sum" }
+                                                    },
+                                                    "grouping": [
+                                                        { "type": "Dimension", "name": "MeterCategory" }
+                                                    ],
+                                                    "sorting": [
+                                                        { "direction": "descending", "name": "Cost" }
+                                                    ]
+                                                }
+                                            },
+                                            "authentication": {
+                                                "type": "ActiveDirectoryOAuth",
+                                                "tenant": "@body('Get_secret_-_tenantId')?['value']",
+                                                "audience": "https://management.azure.com",
+                                                "clientId": "@body('Get_secret_-_appId')?['value']",
+                                                "secret": "@body('Get_secret_-_secret')?['value']"
+                                            }
+                                        },
+                                        "runAfter": {},
+                                        "runtimeConfiguration": {
+                                            "secureData": { "properties": ["inputs"] }
+                                        }
+                                    }
+                                },
+                                "runAfter": {},
+                                "description": "All 4 HTTP calls run in PARALLEL (no runAfter between them)"
+                            },
+                            "Scope_-_Build_Report": {
+                                "type": "Scope",
+                                "actions": {
+                                    "Build_Daily_Table_and_Total": {
+                                        "type": "Foreach",
+                                        "foreach": "@body('HTTP_-_Daily_Cost')?['properties']?['rows']",
+                                        "actions": {
+                                            "Compose_-_FormatDate": {
+                                                "type": "Compose",
+                                                "inputs": "@concat(substring(string(items('Build_Daily_Table_and_Total')[1]), 0, 4), '-', substring(string(items('Build_Daily_Table_and_Total')[1]), 4, 2), '-', substring(string(items('Build_Daily_Table_and_Total')[1]), 6, 2))",
+                                                "runAfter": {}
+                                            },
+                                            "Append_-_DailyCostRow": {
+                                                "type": "AppendToStringVariable",
+                                                "inputs": {
+                                                    "name": "DailyCostHTML",
+                                                    "value": "<tr><td style='padding:10px 15px;border-bottom:1px solid #e8e8e8;color:#333;font-size:13px;'>@{formatDateTime(outputs('Compose_-_FormatDate'), 'MMM dd, yyyy')}</td><td style='padding:10px 15px;border-bottom:1px solid #e8e8e8;text-align:right;font-weight:600;color:#0078D4;font-size:13px;'>$@{formatNumber(items('Build_Daily_Table_and_Total')[0], 'N2')}</td></tr>"
+                                                },
+                                                "runAfter": { "Compose_-_FormatDate": ["Succeeded"] }
+                                            },
+                                            "Increment_-_TotalCost": {
+                                                "type": "IncrementVariable",
+                                                "inputs": {
+                                                    "name": "TotalCost",
+                                                    "value": "@items('Build_Daily_Table_and_Total')[0]"
+                                                },
+                                                "runAfter": { "Append_-_DailyCostRow": ["Succeeded"] }
+                                            }
+                                        },
+                                        "runAfter": {},
+                                        "runtimeConfiguration": {
+                                            "concurrency": { "repetitions": 1 }
+                                        }
+                                    },
+                                    "Build_Top5_Resources": {
+                                        "type": "Foreach",
+                                        "foreach": "@body('HTTP_-_Top_5_Resources')?['properties']?['rows']",
+                                        "actions": {
+                                            "Compose_-_ResourceName": {
+                                                "type": "Compose",
+                                                "inputs": "@last(split(items('Build_Top5_Resources')[1], '/'))",
+                                                "runAfter": {}
+                                            },
+                                            "Compose_-_ResourceGroup": {
+                                                "type": "Compose",
+                                                "inputs": "@if(greater(indexOf(toLower(items('Build_Top5_Resources')[1]), 'resourcegroups/'), -1), first(split(last(split(toLower(items('Build_Top5_Resources')[1]), 'resourcegroups/')), '/')), 'N/A')",
+                                                "runAfter": {}
+                                            },
+                                            "Append_-_Top5Row": {
+                                                "type": "AppendToStringVariable",
+                                                "inputs": {
+                                                    "name": "Top5ResourceHTML",
+                                                    "value": "<tr><td style='padding:10px 15px;border-bottom:1px solid #e8e8e8;color:#333;font-size:13px;'>@{outputs('Compose_-_ResourceName')}</td><td style='padding:10px 15px;border-bottom:1px solid #e8e8e8;color:#666;font-size:13px;'>@{outputs('Compose_-_ResourceGroup')}</td><td style='padding:10px 15px;border-bottom:1px solid #e8e8e8;text-align:right;font-weight:600;color:#0078D4;font-size:13px;'>$@{formatNumber(items('Build_Top5_Resources')[0], 'N2')}</td></tr>"
+                                                },
+                                                "runAfter": { "Compose_-_ResourceName": ["Succeeded"], "Compose_-_ResourceGroup": ["Succeeded"] }
+                                            }
+                                        },
+                                        "runAfter": {},
+                                        "runtimeConfiguration": {
+                                            "concurrency": { "repetitions": 1 }
+                                        }
+                                    },
+                                    "Build_MeterCategory_Table": {
+                                        "type": "Foreach",
+                                        "foreach": "@body('HTTP_-_Total_By_MeterCategory')?['properties']?['rows']",
+                                        "actions": {
+                                            "Append_-_MeterCategoryRow": {
+                                                "type": "AppendToStringVariable",
+                                                "inputs": {
+                                                    "name": "MeterCategoryHTML",
+                                                    "value": "<tr><td style='padding:10px 15px;border-bottom:1px solid #e8e8e8;color:#333;font-size:13px;'>@{items('Build_MeterCategory_Table')[1]}</td><td style='padding:10px 15px;border-bottom:1px solid #e8e8e8;text-align:right;font-weight:600;color:#0078D4;font-size:13px;'>$@{formatNumber(items('Build_MeterCategory_Table')[0], 'N2')}</td></tr>"
+                                                },
+                                                "runAfter": {}
+                                            }
+                                        },
+                                        "runAfter": {},
+                                        "runtimeConfiguration": {
+                                            "concurrency": { "repetitions": 1 }
+                                        }
+                                    },
+                                    "Compose_-_Email_Body": {
+                                        "type": "Compose",
+                                        "inputs": "<html><head><style>body{margin:0;padding:0;font-family:Segoe UI,Arial,sans-serif;background:#f0f2f5;}table{border-collapse:collapse;}</style></head><body><div style='max-width:700px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);'><div style='background:linear-gradient(135deg,#0078D4,#005A9E);padding:30px 35px;'><h1 style='color:#fff;margin:0;font-size:22px;font-weight:600;'>Weekly Azure Cost Report</h1><p style='color:rgba(255,255,255,0.85);margin:8px 0 0;font-size:14px;'>@{variables('CurrentSubName')}</p><p style='color:#fff;margin:15px 0 0;font-size:28px;font-weight:700;'>$@{formatNumber(variables('TotalCost'), 'N2')} CAD</p><p style='color:rgba(255,255,255,0.7);margin:4px 0 0;font-size:12px;'>7-day total (@{variables('StartDate')} to @{variables('EndDate')})</p></div><div style='padding:25px 35px;'><h2 style='color:#1a1a1a;font-size:16px;margin:0 0 15px;padding-bottom:10px;border-bottom:2px solid #e8e8e8;'>Daily Cost Breakdown</h2><table style='width:100%;'><thead><tr><th style='padding:10px 15px;text-align:left;font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #dde2e8;'>Date</th><th style='padding:10px 15px;text-align:right;font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #dde2e8;'>Cost (CAD)</th></tr></thead><tbody>@{variables('DailyCostHTML')}<tr style='background:#f5f7fa;'><td style='padding:12px 15px;font-weight:700;color:#1a1a1a;font-size:14px;'>TOTAL</td><td style='padding:12px 15px;text-align:right;font-weight:700;color:#0078D4;font-size:14px;'>$@{formatNumber(variables('TotalCost'), 'N2')}</td></tr></tbody></table></div><div style='padding:0 35px 25px;'><h2 style='color:#1a1a1a;font-size:16px;margin:0 0 15px;padding-bottom:10px;border-bottom:2px solid #e8e8e8;'>Top 5 Resources by Cost</h2><table style='width:100%;'><thead><tr><th style='padding:10px 15px;text-align:left;font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #dde2e8;'>Resource</th><th style='padding:10px 15px;text-align:left;font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #dde2e8;'>Resource Group</th><th style='padding:10px 15px;text-align:right;font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #dde2e8;'>Cost (CAD)</th></tr></thead><tbody>@{variables('Top5ResourceHTML')}</tbody></table></div><div style='padding:0 35px 25px;'><h2 style='color:#1a1a1a;font-size:16px;margin:0 0 15px;padding-bottom:10px;border-bottom:2px solid #e8e8e8;'>Cost by Service Category</h2><table style='width:100%;'><thead><tr><th style='padding:10px 15px;text-align:left;font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #dde2e8;'>Meter Category</th><th style='padding:10px 15px;text-align:right;font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #dde2e8;'>Cost (CAD)</th></tr></thead><tbody>@{variables('MeterCategoryHTML')}</tbody></table></div><div style='background:#f5f7fa;padding:18px 35px;text-align:center;border-top:1px solid #e0e8f0;'><p style='color:#999;font-size:11px;margin:0;'>Cloud Enablement Team - Automated Cost Report</p></div></div></body></html>",
+                                        "runAfter": {
+                                            "Build_Daily_Table_and_Total": ["Succeeded"],
+                                            "Build_Top5_Resources": ["Succeeded"],
+                                            "Build_MeterCategory_Table": ["Succeeded"]
+                                        }
+                                    },
+                                    "Send_email_-_Weekly_Cost_Report": {
+                                        "type": "ApiConnection",
+                                        "inputs": {
+                                            "host": {
+                                                "connection": {
+                                                    "referenceName": "office365"
+                                                }
+                                            },
+                                            "method": "post",
+                                            "path": "/v2/Mail",
+                                            "body": {
+                                                "To": "@{variables('CurrentEmail')}",
+                                                "Subject": "Weekly Cost Report - @{variables('CurrentSubName')} - $@{formatNumber(variables('TotalCost'), 'N2')} CAD",
+                                                "Body": "@{outputs('Compose_-_Email_Body')}",
+                                                "Importance": "Normal",
+                                                "IsHtml": true
+                                            }
+                                        },
+                                        "runAfter": { "Compose_-_Email_Body": ["Succeeded"] },
+                                        "description": "CUSTOMIZE: Configure the office365 connection in the Logic App Connections blade"
+                                    }
+                                },
+                                "runAfter": { "Scope_-_Fetch_Cost_Data": ["Succeeded"] }
+                            }
+                        },
+                        "else": {
+                            "actions": {}
+                        },
+                        "runAfter": { "Scope_-_Get_Subscription_Info": ["Succeeded"] }
+                    }
+                },
+                "runAfter": { "Scope_-_Get_Subscriptions": ["Succeeded"] },
+                "runtimeConfiguration": {
+                    "concurrency": { "repetitions": 1 }
+                },
+                "description": "Sequential execution to prevent variable collisions"
+            }
+        }
+    }
+}
