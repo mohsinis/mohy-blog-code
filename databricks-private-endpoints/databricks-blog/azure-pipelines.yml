@@ -1,0 +1,275 @@
+trigger:
+- main
+- develop
+
+variables:
+  # Terraform version
+  terraformVersion: '1.5.7'
+  # Service connection names (configure these in Azure DevOps)
+  azureServiceConnection: 'databricks-service-connection'
+  # Storage account for Terraform state
+  storageAccountName: 'contosoautoterraformccsa01'
+  storageContainerName: 'tfstate'
+  storageResourceGroup: 'contoso-auto-terraform-rg'
+
+stages:
+# Build and Validate Stage
+- stage: Build
+  displayName: 'Build and Validate'
+  jobs:
+  - job: Validate
+    displayName: 'Terraform Validate'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: TerraformInstaller@1
+      displayName: 'Install Terraform'
+      inputs:
+        terraformVersion: $(terraformVersion)
+
+    - task: AzureCLI@2
+      displayName: 'Terraform Format Check'
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          terraform fmt -check=true -recursive
+          if [ $? -ne 0 ]; then
+            echo "##vso[task.logissue type=error]Terraform files are not properly formatted"
+            exit 1
+          fi
+
+    - task: AzureCLI@2
+      displayName: 'Terraform Validate'
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          terraform init -backend=false
+          terraform validate
+
+# Development Environment
+- stage: DeployDev
+  displayName: 'Deploy to Development'
+  dependsOn: Build
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/develop'))
+  jobs:
+  - deployment: DeployToDev
+    displayName: 'Deploy to Dev Environment'
+    environment: 'databricks-dev'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+          
+          - task: TerraformInstaller@1
+            displayName: 'Install Terraform'
+            inputs:
+              terraformVersion: $(terraformVersion)
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Init'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                terraform init \
+                  -backend-config="storage_account_name=$(storageAccountName)" \
+                  -backend-config="container_name=$(storageContainerName)" \
+                  -backend-config="key=dev.tfstate" \
+                  -backend-config="resource_group_name=$(storageResourceGroup)"
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Plan'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                terraform plan \
+                  -var-file="terraform.tfvars" \
+                  -var="environment=dev" \
+                  -out=tfplan
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Apply'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                terraform apply -auto-approve tfplan
+
+# Test Environment
+- stage: DeployTest
+  displayName: 'Deploy to Test'
+  dependsOn: Build
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+  - deployment: DeployToTest
+    displayName: 'Deploy to Test Environment'
+    environment: 'databricks-test'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+          
+          - task: TerraformInstaller@1
+            displayName: 'Install Terraform'
+            inputs:
+              terraformVersion: $(terraformVersion)
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Init'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                terraform init \
+                  -backend-config="storage_account_name=$(storageAccountName)" \
+                  -backend-config="container_name=$(storageContainerName)" \
+                  -backend-config="key=test.tfstate" \
+                  -backend-config="resource_group_name=$(storageResourceGroup)"
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Plan'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                terraform plan \
+                  -var-file="terraform.tfvars" \
+                  -var="environment=test" \
+                  -out=tfplan
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Apply'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                terraform apply -auto-approve tfplan
+
+# UAT Environment
+- stage: DeployUAT
+  displayName: 'Deploy to UAT'
+  dependsOn: DeployTest
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+  - deployment: DeployToUAT
+    displayName: 'Deploy to UAT Environment'
+    environment: 'databricks-uat'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+          
+          - task: TerraformInstaller@1
+            displayName: 'Install Terraform'
+            inputs:
+              terraformVersion: $(terraformVersion)
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Init'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                terraform init \
+                  -backend-config="storage_account_name=$(storageAccountName)" \
+                  -backend-config="container_name=$(storageContainerName)" \
+                  -backend-config="key=uat.tfstate" \
+                  -backend-config="resource_group_name=$(storageResourceGroup)"
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Plan'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                terraform plan \
+                  -var-file="terraform.tfvars" \
+                  -var="environment=uat" \
+                  -out=tfplan
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Apply'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                terraform apply -auto-approve tfplan
+
+# Production Environment
+- stage: DeployProd
+  displayName: 'Deploy to Production'
+  dependsOn: DeployUAT
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+  - deployment: DeployToProd
+    displayName: 'Deploy to Production Environment'
+    environment: 'databricks-analytics'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+          
+          - task: TerraformInstaller@1
+            displayName: 'Install Terraform'
+            inputs:
+              terraformVersion: $(terraformVersion)
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Init'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                terraform init \
+                  -backend-config="storage_account_name=$(storageAccountName)" \
+                  -backend-config="container_name=$(storageContainerName)" \
+                  -backend-config="key=analytics.tfstate" \
+                  -backend-config="resource_group_name=$(storageResourceGroup)"
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Plan'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                terraform plan \
+                  -var-file="terraform.tfvars" \
+                  -var="environment=analytics" \
+                  -out=tfplan
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Apply'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                terraform apply -auto-approve tfplan 

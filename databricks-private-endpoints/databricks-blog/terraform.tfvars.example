@@ -1,0 +1,75 @@
+# Example terraform.tfvars file for Databricks Infrastructure
+# Copy this file to terraform.tfvars and modify the values
+# Note: Environment value will be overridden by the CI/CD pipeline
+
+# ==============================
+# Core Configuration
+# ==============================
+
+# Environment to deploy (dev, test, stage, analytics, poc)
+# This will be overridden by the CI/CD pipeline based on the deployment stage
+environment = "dev"
+
+# Azure region for all resources
+location = "canadacentral"
+
+# Azure subscription ID (from your service principal configuration)
+subscription_id = "YOUR-SUBSCRIPTION-ID"
+
+# Azure tenant ID (from your service principal configuration)
+tenant_id = "YOUR-TENANT-ID"
+
+# ==============================
+# Environment Examples
+# ==============================
+
+# Development Environment:
+# environment = "dev"
+# Creates: contoso-dev-databricks-rg-01, contoso-dev-cc-vnet-01, etc.
+
+# Test Environment:
+# environment = "test"  
+# Creates: contoso-test-databricks-rg-01, contoso-test-cc-vnet-01, etc.
+
+# UAT Environment:
+# environment = "uat"
+# Creates: contoso-uat-databricks-rg-01, contoso-uat-cc-vnet-01, etc.
+
+# Production Environment:
+# environment = "analytics"
+# Creates: contoso-analytics-databricks-rg-01, contoso-analytics-cc-vnet-01, etc.
+
+# Proof of Concept Environment:
+# environment = "poc"
+# Creates: contoso-poc-databricks-rg-01, contoso-poc-cc-vnet-01, etc.
+
+# ==============================
+# Optional Customizations
+# ==============================
+
+# Uncomment and modify these if you need to override defaults:
+
+# Custom resource group name prefix (default: "contoso")
+# resource_group_name_prefix = "contoso"
+
+# Custom naming suffix (default: "01")
+# naming_suffix = "01"
+
+# Enable/disable specific features
+# enable_private_endpoints = true
+# enable_unity_catalog = true
+
+# Custom network configuration
+# vnet_address_space = ["10.0.0.0/16"]
+# databricks_subnet_address_prefix = "10.0.1.0/24"
+# storage_subnet_address_prefix = "10.0.2.0/24"
+
+# ==============================
+# Pipeline Usage Notes
+# ==============================
+
+# When using with CI/CD pipeline:
+# 1. The 'environment' variable will be automatically set by the pipeline
+# 2. Ensure all other values match your Azure configuration
+# 3. The pipeline will use different state files for each environment
+# 4. Service principal authentication is handled by Azure DevOps service connections 
