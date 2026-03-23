@@ -1,0 +1,60 @@
+{
+  "properties": {
+    "displayName": "Firewall Route Enforcement Initiative",
+    "policyType": "Custom",
+    "description": "Comprehensive initiative to enforce firewall default route presence, prevent deletion, deny invalid configurations, and ensure all subnets have route tables.",
+    "metadata": {
+      "category": "Network",
+      "version": "1.0.0"
+    },
+    "parameters": {
+      "firewallIP": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Firewall IP Address",
+          "description": "The private IP of the Azure Firewall or NVA"
+        },
+        "defaultValue": "10.0.0.4"
+      },
+      "effectAutoAdd": {
+        "type": "String",
+        "allowedValues": ["Modify", "Disabled"],
+        "defaultValue": "Modify"
+      },
+      "effectDenyDelete": {
+        "type": "String",
+        "allowedValues": ["DenyAction", "Disabled"],
+        "defaultValue": "DenyAction"
+      },
+      "effectStrictDeny": {
+        "type": "String",
+        "allowedValues": ["Deny", "Audit", "Disabled"],
+        "defaultValue": "Deny"
+      }
+    },
+    "policyDefinitions": [
+      {
+        "policyDefinitionReferenceId": "AutoAddFirewallRoute",
+        "policyDefinitionId": "${POLICY_AUTO_ADD_ID}",
+        "parameters": {
+          "firewallIP": { "value": "[parameters('firewallIP')]" }
+        }
+      },
+      {
+        "policyDefinitionReferenceId": "DenyDeleteFirewallRoute",
+        "policyDefinitionId": "${POLICY_DENY_DELETE_ID}"
+      },
+      {
+        "policyDefinitionReferenceId": "DenyInvalidFirewallRoute",
+        "policyDefinitionId": "${POLICY_DENY_INVALID_ID}",
+        "parameters": {
+          "firewallIP": { "value": "[parameters('firewallIP')]" }
+        }
+      },
+      {
+        "policyDefinitionReferenceId": "SubnetMustHaveRouteTable",
+        "policyDefinitionId": "${POLICY_SUBNET_RT_ID}"
+      }
+    ]
+  }
+}

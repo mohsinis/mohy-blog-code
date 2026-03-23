@@ -1,0 +1,20 @@
+{
+  "mode": "All",
+  "policyRule": {
+    "if": {
+      "allOf": [
+        {
+          "field": "type",
+          "equals": "Microsoft.Network/virtualNetworks/subnets"
+        },
+        {
+          "field": "Microsoft.Network/virtualNetworks/subnets/routeTable.id",
+          "exists": false
+        }
+      ]
+    },
+    "then": {
+      "effect": "Deny"
+    }
+  }
+}

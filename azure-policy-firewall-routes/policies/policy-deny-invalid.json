@@ -1,0 +1,67 @@
+{
+  "mode": "All",
+  "policyRule": {
+    "if": {
+      "anyOf": [
+        {
+          "allOf": [
+            {
+              "field": "type",
+              "equals": "Microsoft.Network/routeTables"
+            },
+            {
+              "count": {
+                "field": "Microsoft.Network/routeTables/routes[*]",
+                "where": {
+                  "allOf": [
+                    {
+                      "field": "Microsoft.Network/routeTables/routes[*].addressPrefix",
+                      "equals": "0.0.0.0/0"
+                    },
+                    {
+                      "field": "Microsoft.Network/routeTables/routes[*].nextHopType",
+                      "equals": "VirtualAppliance"
+                    },
+                    {
+                      "field": "Microsoft.Network/routeTables/routes[*].nextHopIpAddress",
+                      "equals": "[parameters('firewallIP')]"
+                    }
+                  ]
+                }
+              },
+              "equals": 0
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "field": "type",
+              "equals": "Microsoft.Network/routeTables/routes"
+            },
+            {
+              "field": "Microsoft.Network/routeTables/routes/addressPrefix",
+              "equals": "0.0.0.0/0"
+            },
+            {
+              "field": "Microsoft.Network/routeTables/routes/nextHopIpAddress",
+              "notEquals": "[parameters('firewallIP')]"
+            }
+          ]
+        }
+      ]
+    },
+    "then": {
+      "effect": "deny"
+    }
+  },
+  "parameters": {
+    "firewallIP": {
+      "type": "String",
+      "metadata": {
+        "displayName": "Firewall IP Address",
+        "description": "The private IP of the Azure Firewall or NVA"
+      }
+    }
+  }
+}

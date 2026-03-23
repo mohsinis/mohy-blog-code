@@ -1,0 +1,25 @@
+{
+  "mode": "All",
+  "policyRule": {
+    "if": {
+      "allOf": [
+        {
+          "field": "type",
+          "equals": "Microsoft.Network/routeTables/routes"
+        },
+        {
+          "field": "name",
+          "equals": "firewall-default-route"
+        }
+      ]
+    },
+    "then": {
+      "effect": "DenyAction",
+      "details": {
+        "actionNames": [
+          "delete"
+        ]
+      }
+    }
+  }
+}
